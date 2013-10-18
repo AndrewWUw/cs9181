@@ -1,0 +1,53 @@
+-- Overview --
+
+The example implements the rendering of a Mandelbrot set fractal using CUDA accelerated Haskell.
+The Accelerate library which it uses provides support for several Haskell functions which are
+very suited to the GPU architecture (eg. fold, zipWith, map). The GPU has a massively parallel
+architecture but has extremely limited inter-thread communication, and slow memory fetch
+instructions. Haskell's 'map' function for example is very suited to GPU acceleration as each
+element in the list being mapped can be calculate independently and in parallel in many threads,
+without need for global state or communication (the mapping function has to be pure).
+
+-- Structure --
+
+The structure of the example is set up between 3 sections:
+
+ * Main section - simple main function which connects things together and does the boilerplate
+   window creation and calls stuff from the other two sections. Not much to see here.
+ 
+ * Rendering section - this is responsible for conversion of the Mandelbrot set data (which is
+   stored in DIM2(F, F, int) array format, a Haskell data format) to a raw RGBA bitmap, which
+   can be displayed on the screen. In order words it's responsible for visualising the results
+   of the Mandelbrot calculation.
+   The pixels are assigned values from a complex Mandelbrot fragment in an accelerated way, by
+   using A.map (map from the Accelerate library). Each complex Mandelbrot result --> pixel
+   calculation is pure and only depends on the input value, so is suited to acceleration.
+ 
+ * Mandelbrot section - the main section with the actual fractal evaluation logic. 
+   The genPlane function initialises a ComplexPlane of the right size, and then invokes the
+   function 'iter' on each element on this plane. The function 'iter' is the true logic
+   of the Mandelbrot generation, and this is run in parallel for every 'pixel' in the
+   ComplexPlane. The 'mandelbrot' function creates the plane and basically calls 'iter' on
+   every pixel (in parallel) to calculate the fractal. The magic here is using A.zipWith,
+   which uses the Accelerated version of zipWith, causing the function 'iter' along with
+   the overloaded maths operation functions it uses to do its calculation, to be run for
+   every pixel parallel on the GPU.
+   The overloaded functions define simple math operations needed to calculate the Mandelbrot
+   set (which requires calculation over complex plane for 2D).
+
+-- Iteration --
+
+The fractal complex point iteration of a single pixel is realised in SERIES on the GPU. Since this
+part needs global state (Z' = Z^2 + C, thus global state Z'). The 'iter' function calls the
+'next' function to calculate the next stage Z'. Note here that the fractal is calculated in
+multiple passes; the CPU loops multiple GPU passes over the plane, one pass calculates
+Z' = Z^2 + C over _ALL_ pixels for a single iteration. Iteration is done over passes this way
+to avoid loop structions on the GPU.
+
+-- Embedded Code --
+
+The embedded code gets executed on the GPU. The accelerated functions A.zipWith A.map and so forth
+take the function argument provided and compiles it as a CUDA kernel (assuming CUDA acceleration is 
+supported) instead of normally for the CPU. These functions take the given array, and upload it to
+GPU memory. Then, it runs the GPU CUDA kernel on every element in the list.
+
