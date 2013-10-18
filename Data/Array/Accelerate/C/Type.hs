@@ -1,5 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs         #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE QuasiQuotes   #-}
 
 -- |
@@ -16,28 +16,40 @@
 --
 
 module Data.Array.Accelerate.C.Type (
-  expType,
-  tupleTypeToC, scalarTypeToC, numTypeToC, integralTypeToC, floatingTypeToC, nonNumTypeToC
+  arrTypeToC, accTypeToC,
+  tupleTypeToC, scalarTypeToC, numTypeToC, integralTypeToC, floatingTypeToC, nonNumTypeToC,
+  sizeTupleType
 ) where
-
-  -- standard libraries
--- import Data.Char
 
   -- libraries
 import Language.C         as C
 import Language.C.Quote.C as C
   
     -- accelerate
+import Data.Array.Accelerate.Array.Sugar
 import Data.Array.Accelerate.AST
 import Data.Array.Accelerate.Type
-import qualified Data.Array.Accelerate.Analysis.Type    as Sugar
 
 
--- Determine types
--- ---------------
+-- Convert an Accelerate array type to C
+-- -------------------------------------
 
-expType :: PreExp OpenAcc aenv t -> [C.Type]
-expType = tupleTypeToC . Sugar.preExpType Sugar.accType
+-- Determine the set of C types used to represent values of the given array type.
+--
+-- The (dummy) value will not be used. The implementation only depends on its type.
+--
+arrTypeToC :: forall sh e. (Shape sh, Elt e) => Array sh e -> [C.Type]
+arrTypeToC _dummy
+  = [cty| typename $id:("DIM" ++ show (dim (undefined::sh))) * |] :
+    [ [cty| $ty:t * |] | t <- tupleTypeToC (eltType (undefined::e))]
+
+-- Determine the set of C types used to represent values of the array type produced by the given array computation.
+--
+-- The (dummy) value will not be used. The implementation only depends on its type.
+--
+accTypeToC :: forall sh e aenv. (Shape sh, Elt e) => OpenAcc aenv (Array sh e) -> [C.Type]
+accTypeToC _dummy = arrTypeToC (undefined::Array sh e)
+
 
 -- Convert Accelerate to C types
 -- -----------------------------
@@ -87,6 +99,17 @@ nonNumTypeToC (TypeChar   _) = typename "HsChar"
 nonNumTypeToC (TypeCChar  _) = [cty|char|]
 nonNumTypeToC (TypeCSChar _) = [cty|signed char|]
 nonNumTypeToC (TypeCUChar _) = [cty|unsigned char|]
+
+
+-- Tuples
+-- ------
+
+-- |Number of (flattened) components of a tuple type.
+--
+sizeTupleType :: TupleType a -> Int
+sizeTupleType UnitTuple       = 0
+sizeTupleType (SingleTuple _) = 1
+sizeTupleType (PairTuple a b) = sizeTupleType a + sizeTupleType b
 
 
 -- Auxilliary functions

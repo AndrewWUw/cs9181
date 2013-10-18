@@ -78,7 +78,6 @@ runExpIO e
         error "Data.Array.Accelerate.C.runExpIO: result type may neither be unit nor a tuple"
 
     ; tmpPath <- addTrailingPathSeparator <$> getTemporaryDirectory >>= mkdtemp
-    --; tmpPath <- getTemporaryDirectory >>= mkdtemp
     ; logMsgLn $ "Data.Array.Accelerate.C: temporary directory: " ++ tmpPath
     ; let cFilePath = tmpPath </> cFile
           oFilePath = tmpPath </> oFile

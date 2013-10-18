@@ -1,5 +1,5 @@
 Name:                   accelerate-c
-Version:                0.1.1.0
+Version:                0.2.0.0
 Cabal-version:          >= 1.6
 Tested-with:            GHC >= 7.4
 Build-type:             Simple
@@ -36,7 +36,9 @@ Library
 
   Exposed-modules:      Data.Array.Accelerate.C
 
-  Other-modules:        Data.Array.Accelerate.C.Base
+  Other-modules:        Data.Array.Accelerate.C.Acc
+                        Data.Array.Accelerate.C.Base
+                        Data.Array.Accelerate.C.Execute
                         Data.Array.Accelerate.C.Exp
                         Data.Array.Accelerate.C.Load
                         Data.Array.Accelerate.C.Type
@@ -44,6 +46,7 @@ Library
   ghc-options:          -O2
                         -Wall
                         -fwarn-tabs
+                        -fno-warn-name-shadowing
 
   ghc-prof-options:     -auto-all
 
