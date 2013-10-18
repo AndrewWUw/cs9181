@@ -78,7 +78,7 @@ runExpIO e
         error "Data.Array.Accelerate.C.runExpIO: result type may neither be unit nor a tuple"
 
     ; tmpPath <- addTrailingPathSeparator <$> getTemporaryDirectory >>= mkdtemp
-    --; tmpPath <- getTemporaryDirectory >>= mkdtemp
+  --; tmpPath <- getTemporaryDirectory >>= mkdtemp
     ; logMsgLn $ "Data.Array.Accelerate.C: temporary directory: " ++ tmpPath
     ; let cFilePath = tmpPath </> cFile
           oFilePath = tmpPath </> oFile
@@ -221,7 +221,7 @@ cOpts = "-O2"
 -- The default value is for the Haskell Platform with GHC 7.6.3 on OS X.
 --
 ffiLibDir :: FilePath
-ffiLibDir = "/Library/Frameworks/GHC.framework/Versions/Current/usr/lib/ghc-7.6.3/include/"
+ffiLibDir = "/usr/local/lib/ghc-7.6.3/include"
 
 
 -- Tracing

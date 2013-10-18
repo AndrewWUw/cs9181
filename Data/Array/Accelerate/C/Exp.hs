@@ -46,6 +46,59 @@ import Data.Array.Accelerate.Analysis.Type
 -- Generating C code from scalar Accelerate expressions
 -- ----------------------------------------------------
 
+------------------------------------------------------------------------------------------
+expToC' :: forall t env aenv. Elt t => Env env -> Env aenv -> OpenExp env aenv t -> [C.Exp]
+expToC' env  aenv  (Let bnd body)     = elet env aenv bnd body
+expToC' env  _aenv (Var idx)          = [ [cexp| $id:name |] | (_, name) <- prjEnv idx env]
+expToC' _env _aenv (PrimConst c)      = [primConstToC c]
+expToC' _env _aenv (Const c)          = constToC (eltType (undefined::t)) c
+expToC' env  aenv  (PrimApp f arg)    = [primToC f $ expToC' env aenv arg]
+expToC' env  aenv  (Tuple t)          = tupToC env aenv t 
+expToC' env  aenv  e@(Prj i t)        = prjToC env aenv i t e
+expToC' env  aenv  (Cond p t e)       = condToC env aenv p t e
+expToC' _env _aenv (Iterate _n _f _x) = error "D.A.A.C.Exp: 'Iterate' not supported"
+
+elet :: (Elt t, Elt t') => Env env -> Env aenv -> OpenExp env aenv t -> OpenExp (env, t) aenv t' -> [C.Exp]
+elet env aenv bnd body
+  = map (\bodyiC -> [cexp| ({ $items:inits $exp:bodyiC; }) |]) (expToC' env_t aenv body)
+  where
+    (binders, env_t) = env `pushExpEnv` bnd
+    inits            = zipWith bindOneComponent binders (expToC' env aenv bnd)
+    
+    bindOneComponent (tyiC, name) bndiC = [citem| $ty:tyiC $id:name = $exp:bndiC; |]
+
+tupToC :: Env aenv -> Env env -> Tuple (OpenExp aenv env) t -> [C.Exp]
+tupToC _env _eanv NilTup        = []
+tupToC env  aenv  (SnocTup t e) = tupToC env aenv t ++ expToC' env aenv e
+
+prjToC :: Elt t 
+       => Env env 
+       -> Env aenv
+       -> TupleIdx (TupleRepr t) e
+       -> OpenExp env aenv t
+       -> OpenExp env aenv e
+       -> [C.Exp]
+prjToC env aenv ix t e =
+  let subset = reverse
+             . take (length      $ tupleTypeToC (expType e))
+             . drop (prjToInt ix $ preExpType accType t)
+             . reverse
+  in
+  subset $ expToC' env aenv t
+
+condToC :: Elt t 
+        => Env env 
+        -> Env aenv
+        -> OpenExp env aenv Bool
+        -> OpenExp env aenv t
+        -> OpenExp env aenv t
+        -> [C.Exp]
+condToC env aenv p t e
+  = zipWith (\tiC eiC -> [cexp| $exp:pC ? $exp:tiC : $exp:eiC |]) (expToC' env aenv t) (expToC' env aenv e)
+  where
+    [pC] = expToC' env aenv p    -- type guarantees singleton  
+------------------------------------------------------------------------------------------
+
 -- Compile a closed embedded scalar expression into a list of C expression whose length corresponds to the number of tuple
 -- components of the embedded type.
 --
