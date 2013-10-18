@@ -1,0 +1,34 @@
+1. Structure
+
+We 'Open' the Expression using OpenExp, then a case statement on all the possible things that the
+expression can be, and handle them accordingly. For each Exp data constructor, we call a top-level
+exp type handler function which does the rest of the expression generation.
+
+2. Primitive Types & Functions
+
+A lot of the top top-level expression type handlers have been given as part of the assignment.  They
+usually match the expression type to a more specific subtype, and then call the handlers for the
+subtypes. 
+
+The constants handler simply calls the correspondign handlers of the correct constant type, which
+return the generated C.Exp. The tuple handler works by unwrapping the tuple in the correct order,
+and then recursively calling expToC generator on the members of the tuple. The PrimApp handler
+called PrimToC matches the PrimFun function against all of the supported functions, and outputs the
+corresponding C equivalent, with the function arguments being calculated resursively using
+expToCOpen. PrimConst simply calls the provided handler prinConstToC, which matches against all
+the primitive constants and generates the C equivalent. The Proj projection handler calls prjToInt
+to determine the corresponding integer, then uses this to modify the generated tuple (which
+recursively calls expToCOpen).
+
+The handlers which weren't given as part of the assignment must be coded. We used the approach of
+looking at, understanding and modifying the CUDA backend code and then adapting it to work with the
+assignment code.
+
+3. Conditionals
+
+We did not get to implementing conditionals.
+
+4. Let / Var
+
+We did not get to implementing Let / Var
+
