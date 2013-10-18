@@ -71,7 +71,7 @@ fun1ToC _aenv _ = error "D.A.A.C.Exp.fun1ToC: unreachable"
 -- The expression may contain free array variables according to the array variable valuation passed as a first argument.
 --
 --openExpToC :: forall t env aenv. Elt t => Env env -> Env aenv -> OpenExp env aenv t -> [C.Exp]
-openExpToC :: Elt t => Env env -> Env aenv -> OpenExp env aenv t -> [C.Exp]
+openExpToC :: forall t env aenv. Elt t => Env env -> Env aenv -> OpenExp env aenv t -> [C.Exp]
 openExpToC env  aenv   (Let bnd body)    = elet env aenv bnd body
 openExpToC env  _aenv  (Var idx)         = [ [cexp| $id:name |] | (_, name) <- prjEnv idx env]
 openExpToC _env _aenv (PrimConst c)      = [primConstToC c] 
