@@ -90,33 +90,17 @@ openExpToC env  _aenv (IndexHead ix)          = . last <$> openExpToC ix env
 openExpToC env  _aenv (IndexTail ix )         =   init <$> openExpToC ix env
 openExpToC env  _aenv (IndexSlice ix slix sh) = indexSlice ix slix sh env
 openExpToC env  _aenv (IndexFull ix slix sl)  = indexFull  ix slix sl env
-openExpToC env  _aenv (ToIndex sh ix)         = toIndex    sh ix env
-openExpToC env  _aenv (FromIndex sh ix)       = fromIndex  sh ix env
+openExpToC env  _aenv (ToIndex sh ix)         = toIndexToC    sh ix env
+openExpToC env  _aenv (FromIndex sh ix)       = fromIndexToC  sh ix env
 
 -- Arrays and indexing
-openExpToC env  _aenv (Index acc ix)          = index acc ix env
-openExpToC env  _aenv (LinearIndex acc ix)    = linearIndex acc ix env
-openExpToC env  _aenv (Shape acc)             = shape acc env
-openExpToC env  _aenv (ShapeSize sh)          = shapeSize sh env
-openExpToC env  _aenv (Intersect sh1 sh2)     = intersect sh1 sh2 env
-openExpToC env  _aenv 
-
-
-
-
---openExpToC = error "IMPLEMENT THIS FUNCTION"
+openExpToC env  _aenv (Index acc ix)          = indexToC acc ix env
+openExpToC env  _aenv (LinearIndex acc ix)    = linearIndexToC acc ix env
+openExpToC env  _aenv (Shape acc)             = shapeToC acc env
+openExpToC env  _aenv (ShapeSize sh)          = shapeSizeToC sh env
+openExpToC env  _aenv (Intersect sh1 sh2)     = intersectToC sh1 sh2 env
+openExpToC = error "IMPLEMENT THIS FUNCTION"
         
-------------------------------------------------------------------------------------------
---expToC' :: forall t env aenv. Elt t => Env env -> Env aenv -> OpenExp env aenv t -> [C.Exp]
---expToC' env  aenv  (Let bnd body)     = elet env aenv bnd body
---expToC' env  _aenv (Var idx)          = [ [cexp| $id:name |] | (_, name) <- prjEnv idx env]
---expToC' _env _aenv (PrimConst c)      = [primConstToC c]
---expToC' _env _aenv (Const c)          = constToC (eltType (undefined::t)) c
---expToC' env  aenv  (PrimApp f arg)    = [primToC f $ expToC' env aenv arg]
---expToC' env  aenv  (Tuple t)          = tupToC env aenv t 
---expToC' env  aenv  e@(Prj i t)        = prjToC env aenv i t e
---expToC' env  aenv  (Cond p t e)       = condToC env aenv p t e
---expToC' _env _aenv (Iterate _n _f _x) = error "D.A.A.C.Exp: 'Iterate' not supported"
 
 elet :: (Elt t, Elt t') => Env env -> Env aenv -> OpenExp env aenv t -> OpenExp (env, t) aenv t' -> [C.Exp]
 elet env aenv bnd body
