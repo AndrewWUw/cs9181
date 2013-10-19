@@ -81,6 +81,29 @@ openExpToC env  aenv  (Tuple t)          = tupToC env aenv t
 openExpToC env  aenv  e@(Prj i t)        = prjToC env aenv i t e
 openExpToC env  aenv  (Cond p t e)       = condToC env aenv p t e
 openExpToC _env _aenv (Iterate _n _f _x) = error "D.A.A.C.Exp: 'Iterate' not supported"
+
+-- Shapes and indices
+openExpToC _env _aenv (IndexNill)             = []
+openExpToC _env _aenv (IndexAny)              = []
+openExpToC env  _aenv (IndexCons sh sz)       = (++) <$> openExpToC sh env <*> openExpToC sz env
+openExpToC env  _aenv (IndexHead ix)          = . last <$> openExpToC ix env 
+openExpToC env  _aenv (IndexTail ix )         =   init <$> openExpToC ix env
+openExpToC env  _aenv (IndexSlice ix slix sh) = indexSlice ix slix sh env
+openExpToC env  _aenv (IndexFull ix slix sl)  = indexFull  ix slix sl env
+openExpToC env  _aenv (ToIndex sh ix)         = toIndex    sh ix env
+openExpToC env  _aenv (FromIndex sh ix)       = fromIndex  sh ix env
+
+-- Arrays and indexing
+openExpToC env  _aenv (Index acc ix)          = index acc ix env
+openExpToC env  _aenv (LinearIndex acc ix)    = linearIndex acc ix env
+openExpToC env  _aenv (Shape acc)             = shape acc env
+openExpToC env  _aenv (ShapeSize sh)          = shapeSize sh env
+openExpToC env  _aenv (Intersect sh1 sh2)     = intersect sh1 sh2 env
+openExpToC env  _aenv 
+
+
+
+
 --openExpToC = error "IMPLEMENT THIS FUNCTION"
         
 ------------------------------------------------------------------------------------------
