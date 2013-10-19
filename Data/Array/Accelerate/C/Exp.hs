@@ -28,6 +28,7 @@ import Data.Loc
 import qualified 
        Language.C         as C
 import Language.C.Quote.C as C
+import Control.Applicative                        ( (<$>), (<*>) )
 
   -- accelerate
 import Data.Array.Accelerate.Array.Sugar
@@ -70,8 +71,8 @@ fun1ToC _aenv _ = error "D.A.A.C.Exp.fun1ToC: unreachable"
 --
 -- The expression may contain free array variables according to the array variable valuation passed as a first argument.
 --
+openExpToC :: Elt t => Env env -> Env aenv -> OpenExp env aenv t -> [C.Exp]
 --openExpToC :: forall t env aenv. Elt t => Env env -> Env aenv -> OpenExp env aenv t -> [C.Exp]
-openExpToC :: forall t env aenv. Elt t => Env env -> Env aenv -> OpenExp env aenv t -> [C.Exp]
 openExpToC env  aenv   (Let bnd body)    = elet env aenv bnd body
 openExpToC env  _aenv  (Var idx)         = [ [cexp| $id:name |] | (_, name) <- prjEnv idx env]
 openExpToC _env _aenv (PrimConst c)      = [primConstToC c] 
@@ -83,24 +84,24 @@ openExpToC env  aenv  (Cond p t e)       = condToC env aenv p t e
 openExpToC _env _aenv (Iterate _n _f _x) = error "D.A.A.C.Exp: 'Iterate' not supported"
 
 -- Shapes and indices
-openExpToC _env _aenv (IndexNill)             = []
+openExpToC _env _aenv (IndexNil)              = []
 openExpToC _env _aenv (IndexAny)              = []
-openExpToC env  _aenv (IndexCons sh sz)       = (++) <$> openExpToC sh env <*> openExpToC sz env
-openExpToC env  _aenv (IndexHead ix)          = . last <$> openExpToC ix env 
-openExpToC env  _aenv (IndexTail ix )         =   init <$> openExpToC ix env
-openExpToC env  _aenv (IndexSlice ix slix sh) = indexSlice ix slix sh env
-openExpToC env  _aenv (IndexFull ix slix sl)  = indexFull  ix slix sl env
-openExpToC env  _aenv (ToIndex sh ix)         = toIndexToC    sh ix env
-openExpToC env  _aenv (FromIndex sh ix)       = fromIndexToC  sh ix env
+--openExpToC env  aenv (IndexCons sh sz)        = (++) $ openExpToC env aenv sh * openExpToC env aenv sz
+--openExpToC env  aenv (IndexHead ix)           = last $ openExpToC env aenv ix
+--openExpToC env  aenv (IndexTail ix)           = init $ openExpToC env aenv ix
+--openExpToC env  _aenv (IndexSlice ix slix sh) = indexSlice ix slix sh env
+--openExpToC env  _aenv (IndexFull ix slix sl)  = indexFull  ix slix sl env
+openExpToC _env  _aenv (ToIndex   sh ix)      = toIndexToC    sh ix
+openExpToC _env  _aenv (FromIndex sh ix)      = fromIndexToC  sh ix
 
--- Arrays and indexing
-openExpToC env  _aenv (Index acc ix)          = indexToC acc ix env
-openExpToC env  _aenv (LinearIndex acc ix)    = linearIndexToC acc ix env
-openExpToC env  _aenv (Shape acc)             = shapeToC acc env
-openExpToC env  _aenv (ShapeSize sh)          = shapeSizeToC sh env
-openExpToC env  _aenv (Intersect sh1 sh2)     = intersectToC sh1 sh2 env
-openExpToC = error "IMPLEMENT THIS FUNCTION"
-        
+---- Arrays and indexing
+--openExpToC env  _aenv (Index acc ix)          = indexToC acc ix env
+--openExpToC env  _aenv (LinearIndex acc ix)    = linearIndexToC acc ix env
+--openExpToC env  _aenv (Shape acc)             = shapeToC acc env
+--openExpToC env  _aenv (ShapeSize sh)          = shapeSizeToC sh env
+--openExpToC env  _aenv (Intersect sh1 sh2)     = intersectToC sh1 sh2 env
+--openExpToC env  aenv                          = error "IMPLEMENT THIS FUNCTION"
+
 
 elet :: (Elt t, Elt t') => Env env -> Env aenv -> OpenExp env aenv t -> OpenExp (env, t) aenv t' -> [C.Exp]
 elet env aenv bnd body
