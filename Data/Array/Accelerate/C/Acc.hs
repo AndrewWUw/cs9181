@@ -84,7 +84,14 @@ accToC aenv' acc@(OpenAcc (Map f arr))
                  | (resArr, argArr, (argTy, arg), e) <- zip4 (tail cresNames) (tail cargNames)  -- head is the shape variable
                                                              bnds es
                  ]
+
+accToC aenv' (OpenAcc (ZipWith _ _))
+  = 
+
+accToC aenv' (OpenAcc (Generate _ f))
+  =
 accToC _ _ = error "D.A.A.C.Acc: unimplemented"
+
 
 
 -- Environments

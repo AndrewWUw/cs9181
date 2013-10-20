@@ -66,6 +66,12 @@ fun1ToC aenv (Lam (Body f))
     (bnds, env) = EmptyEnv `pushExpEnv` (undefined::OpenExp () aenv t)
 fun1ToC _aenv _ = error "D.A.A.C.Exp.fun1ToC: unreachable"
 
+fun2ToC :: forall t t' aenv. (Elt t, Elt t') => Env aenv -> OpenAcc () aenv (t -> t') -> ([(C.Type, Name)], [C.Exp])
+  = (bnds, accToC env aenv f)
+  where
+    (bnds, env) = EmptyEnv `pushExpEnv` (undefined::OpenAcc () aenv t)
+fun2ToC _aenv _ = error "D.A.A.C.Exp.fun1ToC: unreachable"
+
 -- Compile an open embedded scalar expression into a list of C expression whose length corresponds to the number of tuple
 -- components of the embedded type.
 --
