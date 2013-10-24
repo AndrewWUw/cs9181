@@ -17,7 +17,7 @@
 --
 
 module Data.Array.Accelerate.C.Exp (
-  expToC, openExpToC, fun1ToC
+  expToC, openExpToC, fun1ToC, fun2ToC
 ) where
 
   -- standard libraries
@@ -28,7 +28,7 @@ import Data.Loc
 import qualified 
        Language.C         as C
 import Language.C.Quote.C as C
-import Control.Applicative                        ( (<$>), (<*>) )
+--import Control.Applicative                        ( (<$>), (<*>) )
 
   -- accelerate
 import Data.Array.Accelerate.Array.Sugar
@@ -59,18 +59,39 @@ expToC = openExpToC EmptyEnv EmptyEnv
 --
 -- The expression may contain free array variables according to the array variable valuation passed as a first argument.
 --
-fun1ToC :: forall t t' aenv. (Elt t, Elt t') => Env aenv -> OpenFun () aenv (t -> t') -> ([(C.Type, Name)], [C.Exp])
+fun1ToC :: forall t t' aenv. (Elt t, Elt t') 
+        => Env aenv 
+        -> OpenFun () aenv (t -> t') 
+        -> ([(C.Type, Name)], [C.Exp])
 fun1ToC aenv (Lam (Body f))
   = (bnds, openExpToC env aenv f)
   where
     (bnds, env) = EmptyEnv `pushExpEnv` (undefined::OpenExp () aenv t)
 fun1ToC _aenv _ = error "D.A.A.C.Exp.fun1ToC: unreachable"
 
-fun2ToC :: forall t t' aenv. (Elt t, Elt t') => Env aenv -> OpenAcc () aenv (t -> t') -> ([(C.Type, Name)], [C.Exp])
-  = (bnds, accToC env aenv f)
+-- 
+--
+fun2ToC :: forall t arr arr' aenv. (Elt t, Elt arr, Elt arr')
+        => Env aenv
+        -> OpenFun () aenv (t -> arr -> arr')
+        -> ([(C.Type, Name)], [C.Exp])
+fun2ToC aenv (Lam (Body f))
+  = (bnds, openExpToC env aenv f)
   where
-    (bnds, env) = EmptyEnv `pushExpEnv` (undefined::OpenAcc () aenv t)
-fun2ToC _aenv _ = error "D.A.A.C.Exp.fun1ToC: unreachable"
+    --(bnds, env) = EmptyEnv `pushExpEnv` ((undefined::OpenExp () aenv t) (undefined::OpenExp () aenv arr))
+    (bnds, env) = EmptyEnv `pushExpEnv` (undefined::OpenExp () aenv t)
+fun2ToC _aenv _ = error "D.A.A.C.Exp.fun2ToC: unreachable"
+
+--data PreOpenFun (acc :: * -> * -> *) env aenv t where
+--  Body :: Elt t => PreOpenExp acc env      aenv t -> PreOpenFun acc env aenv t
+--  Lam  :: Elt a => PreOpenFun acc (env, a) aenv t -> PreOpenFun acc env aenv (a -> t)
+
+--type OpenFun = PreOpenFun OpenAcc
+
+--newtype OpenAcc aenv t = OpenAcc (PreOpenAcc OpenAcc aenv t)
+
+
+
 
 -- Compile an open embedded scalar expression into a list of C expression whose length corresponds to the number of tuple
 -- components of the embedded type.
