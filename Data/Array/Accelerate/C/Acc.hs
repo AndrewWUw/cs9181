@@ -78,7 +78,6 @@ data OpenAccWithName aenv t = OpenAccWithName Name (PreOpenAcc OpenAccWithName a
 --
 -- The computation may contain free array variables according to the array variable environment passed as a first argument.
 --
-
 ---------------------------------------------------------------------------------------------------------------------------
 accToC :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> ([C.Definition], OpenAccWithName aenv arrs)
 accToC aenv acc
@@ -89,6 +88,126 @@ accToC aenv acc
 -- Compile an open Accelerate computation in the 'CG' monad.
 --
 accCG :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> CG (OpenAccWithName aenv arrs)
+--accToC :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> C.Definition
+
+accCG aenv' (OpenAcc (Alet bnd body))
+  = accCG aenv_bnd body
+  where
+    (_, aenv_bnd) = aenv' `pushAccEnv` bnd
+    define aenv_bnd
+
+accCG _aenv' (OpenAcc (Use _))
+  = define [cedecl| int dummy_declaration; |]
+
+accCG aenv' acc@(OpenAcc (Map f arr))
+  = [cedecl|
+      void $id:cFunName ( $params:(cresParams ++ cenvParams ++ cargParams) )
+      {
+        const typename HsWord64 size = $exp:(csize (accDim arr) argSh);
+        for (typename HsWord64 i = 0; i < size; i++)
+        {
+          $items:assigns
+        }
+      }
+    |]
+  where
+    cresTys    = accTypeToC acc
+    cresNames  = accNames "res" [length cresTys - 1]
+    cresParams = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cresTys cresNames]
+    --
+    cenvParams = aenvToCargs aenv'
+    --
+    cargTys    = accTypeToC arr
+    cargNames  = accNames "arg" [length cargTys - 1]
+    cargParams = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cargTys cargNames]
+    --
+    argSh      = [cexp| * $id:(head cargNames) |]
+    (bnds, es) = fun1ToC aenv' f 
+    assigns    = [ [citem| {
+                     const $ty:argTy $id:arg = $id:argArr [i]; 
+                     $id:resArr [i] = $exp:e; 
+                   } |] 
+                 | (resArr, argArr, (argTy, arg), e) <- zip4 (tail cresNames) (tail cargNames)  -- head is the shape variable
+                                                             bnds es
+                 ]
+
+accCG aenv' acc@(OpenAcc (ZipWith f arr1 arr2))
+  = [cedecl|
+      void $id:cFunName ( $params:(cresParams ++ cenvParams ++ cargParams1 ++ cargParams2) )
+      {
+        const typename HsWord64 size1 = $exp:(csize (accDim arr1) argSh1);
+        const typename HsWord64 size2 = $exp:(csize (accDim arr2) argSh2);
+        const typename HsWord64 size  = size1 >= size2 ? size1 : size2;
+        for (typename HsWord64 i = 0; i < size; i++)
+        {
+          $items:assigns
+          $items:assigns1
+        }
+      }
+    |]
+  where
+    cresTys     = accTypeToC acc
+    cresNames   = accNames "res" [length cresTys - 1]
+    cresParams  = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cresTys cresNames]
+    --
+    cenvParams  = aenvToCargs aenv'
+    --
+    cargTys1    = accTypeToC arr1
+    cargTys2    = accTypeToC arr2
+    cargNames1  = accNames "arg" [length cargTys1 - 1]
+    cargNames2  = accNames "arg" [length cargTys2 - 1]
+    cargParams1 = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cargTys1 cargNames1]
+    cargParams2 = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cargTys2 cargNames2]
+    --
+    argSh1       = [cexp| * $id:(head cargNames1) |]
+    argSh2       = [cexp| * $id:(head cargNames2) |]
+    (bnds, es)  = fun2ToC aenv' f  
+    assigns     = [ [citem| {
+                     const $ty:argTy $id:arg = $id:argArr [i]; 
+                     $id:resArr [i] = $exp:e; 
+                   } |]
+                 | (resArr, argArr, (argTy, arg), e)
+                      <- zip4 (tail cresNames) (tail cargNames1) bnds es
+                 ]
+                 -- | (resArr, argArr, argArr2, (argTy, arg), e)
+                 --     <- zip5 (tail cresNames) (tail cargNames1) (tail cargNames2) bnds es
+    assigns1     = [ [citem| {
+                     const $ty:argTy $id:arg = $id:argArr [i]; 
+                     $id:resArr [i] = $exp:e; 
+                   } |]
+                 | (resArr, argArr, (argTy, arg), e)
+                      <- zip4 (tail cresNames) (tail cargNames2) bnds es
+                 ]
+
+accCG aenv' acc@(OpenAcc (Generate _sh f))
+  = [cedecl|
+      void $id:cFunName ( $params:(cresParams ++ cenvParams) )
+      {
+        const typename HsWord64 size = $exp:(csize (accDim acc) accSh);
+        for (typename HsWord64 i = 0; i < size; i++)
+        {
+          $items:assigns
+        }
+      }
+    |]
+  where
+    cresTys    = accTypeToC acc
+    cresNames  = accNames "res" [length cresTys - 1]
+    cresParams = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cresTys cresNames]
+    --
+    cenvParams = aenvToCargs aenv'
+    --
+    shName     = head cresNames
+    accSh       = [cexp| * $id:shName |]    
+    (bnds, es) = fun1ToC aenv' f 
+    assigns    = [ [citem| const $ty:argTy $id:arg = $exp:d; |] 
+                 | (d, (argTy, arg)) <- zip (fromIndexWithShape shName "i" (length bnds)) bnds
+                 ]
+                 ++
+                 [ [citem| $id:resArr [i] = $exp:e; |] 
+                 | (resArr, e) <- zip (tail cresNames) es             -- head is the shape variable
+                 ]
+
 accCG = error "YOU NEED TO IMPLEMENT THIS"
 
 type OpenExpWithName = PreOpenExp OpenAccWithName
@@ -139,124 +258,7 @@ adaptFun (Lam  f) = Lam  $ adaptFun f
 
 
 ---------------------------------------------------------------------------------------------------------------------------
-accToC :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> C.Definition
 
-accToC aenv' (OpenAcc (Alet bnd body))
-  = accToC aenv_bnd body
-  where
-    (_, aenv_bnd) = aenv' `pushAccEnv` bnd
-
-accToC _aenv' (OpenAcc (Use _))
-  = [cedecl| int dummy_declaration; |]
-
-accToC aenv' acc@(OpenAcc (Map f arr))
-  = [cedecl|
-      void $id:cFunName ( $params:(cresParams ++ cenvParams ++ cargParams) )
-      {
-        const typename HsWord64 size = $exp:(csize (accDim arr) argSh);
-        for (typename HsWord64 i = 0; i < size; i++)
-        {
-          $items:assigns
-        }
-      }
-    |]
-  where
-    cresTys    = accTypeToC acc
-    cresNames  = accNames "res" [length cresTys - 1]
-    cresParams = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cresTys cresNames]
-    --
-    cenvParams = aenvToCargs aenv'
-    --
-    cargTys    = accTypeToC arr
-    cargNames  = accNames "arg" [length cargTys - 1]
-    cargParams = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cargTys cargNames]
-    --
-    argSh      = [cexp| * $id:(head cargNames) |]
-    (bnds, es) = fun1ToC aenv' f 
-    assigns    = [ [citem| {
-                     const $ty:argTy $id:arg = $id:argArr [i]; 
-                     $id:resArr [i] = $exp:e; 
-                   } |] 
-                 | (resArr, argArr, (argTy, arg), e) <- zip4 (tail cresNames) (tail cargNames)  -- head is the shape variable
-                                                             bnds es
-                 ]
-
-accToC aenv' acc@(OpenAcc (ZipWith f arr1 arr2))
-  = [cedecl|
-      void $id:cFunName ( $params:(cresParams ++ cenvParams ++ cargParams1 ++ cargParams2) )
-      {
-        const typename HsWord64 size1 = $exp:(csize (accDim arr1) argSh1);
-        const typename HsWord64 size2 = $exp:(csize (accDim arr2) argSh2);
-        const typename HsWord64 size  = size1 >= size2 ? size1 : size2;
-        for (typename HsWord64 i = 0; i < size; i++)
-        {
-          $items:assigns
-          $items:assigns1
-        }
-      }
-    |]
-  where
-    cresTys     = accTypeToC acc
-    cresNames   = accNames "res" [length cresTys - 1]
-    cresParams  = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cresTys cresNames]
-    --
-    cenvParams  = aenvToCargs aenv'
-    --
-    cargTys1    = accTypeToC arr1
-    cargTys2    = accTypeToC arr2
-    cargNames1  = accNames "arg" [length cargTys1 - 1]
-    cargNames2  = accNames "arg" [length cargTys2 - 1]
-    cargParams1 = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cargTys1 cargNames1]
-    cargParams2 = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cargTys2 cargNames2]
-    --
-    argSh1       = [cexp| * $id:(head cargNames1) |]
-    argSh2       = [cexp| * $id:(head cargNames2) |]
-    (bnds, es)  = fun2ToC aenv' f  
-    assigns     = [ [citem| {
-                     const $ty:argTy $id:arg = $id:argArr [i]; 
-                     $id:resArr [i] = $exp:e; 
-                   } |]
-                 | (resArr, argArr, (argTy, arg), e)
-                      <- zip4 (tail cresNames) (tail cargNames1) bnds es
-                 ]
-                 -- | (resArr, argArr, argArr2, (argTy, arg), e)
-                 --     <- zip5 (tail cresNames) (tail cargNames1) (tail cargNames2) bnds es
-    assigns1     = [ [citem| {
-                     const $ty:argTy $id:arg = $id:argArr [i]; 
-                     $id:resArr [i] = $exp:e; 
-                   } |]
-                 | (resArr, argArr, (argTy, arg), e)
-                      <- zip4 (tail cresNames) (tail cargNames2) bnds es
-                 ]
-
-accToC aenv' acc@(OpenAcc (Generate _sh f))
-  = [cedecl|
-      void $id:cFunName ( $params:(cresParams ++ cenvParams) )
-      {
-        const typename HsWord64 size = $exp:(csize (accDim acc) accSh);
-        for (typename HsWord64 i = 0; i < size; i++)
-        {
-          $items:assigns
-        }
-      }
-    |]
-  where
-    cresTys    = accTypeToC acc
-    cresNames  = accNames "res" [length cresTys - 1]
-    cresParams = [ [cparam| $ty:t $id:name |] | (t, name) <- zip cresTys cresNames]
-    --
-    cenvParams = aenvToCargs aenv'
-    --
-    shName     = head cresNames
-    accSh       = [cexp| * $id:shName |]    
-    (bnds, es) = fun1ToC aenv' f 
-    assigns    = [ [citem| const $ty:argTy $id:arg = $exp:d; |] 
-                 | (d, (argTy, arg)) <- zip (fromIndexWithShape shName "i" (length bnds)) bnds
-                 ]
-                 ++
-                 [ [citem| $id:resArr [i] = $exp:e; |] 
-                 | (resArr, e) <- zip (tail cresNames) es             -- head is the shape variable
-                 ]
 
 --accToC aenv' acc@(OpenAcc (Generate sh e))
 --  = [cedecl|
@@ -289,7 +291,7 @@ accToC aenv' acc@(OpenAcc (Generate _sh f))
 --                 | (resArr, argArr, (argTy, arg), e) <- zip4 (tail cresNames) (tail cargNames) bnds es
 --                 ]
 
-accToC _ _ = error "D.A.A.C.Acc: unimplemented"
+-- accToC _ _ = error "D.A.A.C.Acc: unimplemented"
 
 
 
