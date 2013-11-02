@@ -17,10 +17,12 @@
 --
 
 module Data.Array.Accelerate.C.Acc (
+  OpenAccWithName(..), OpenExpWithName, OpenFunWithName, 
   accToC
 ) where
 
   -- libraries
+import Control.Monad.Trans.State
 import Data.List
 import qualified 
        Language.C         as C
@@ -29,20 +31,114 @@ import Language.C.Quote.C as C
   -- accelerate
 import Data.Array.Accelerate.Array.Sugar
 import Data.Array.Accelerate.AST                  hiding (Val(..), prj)
-import Data.Array.Accelerate.Analysis.Shape       hiding (accDim)
+import Data.Array.Accelerate.Tuple
+
   -- friends
 import Data.Array.Accelerate.C.Base
 import Data.Array.Accelerate.C.Exp
 import Data.Array.Accelerate.C.Type
 
 
+-- Code generation monad
+-- ---------------------
+
+-- State to generate unique names and collect generated definitions.
+--
+data CGstate = CGstate
+               { unique :: Int
+               , cdefs  :: [C.Definition]   -- opposite order in which they are stored
+               }
+
+initialCGstate :: CGstate
+initialCGstate = CGstate 0 []
+
+-- State monad encapsulating the code generator state.
+--
+type CG = State CGstate
+
+-- Produce a new unique name on the basis of the given base name.
+--
+newName :: Name -> CG Name
+newName name = state $ \s@(CGstate {unique = unique}) -> (name ++ show unique, s {unique = unique + 1})
+
+-- Store a C definition.
+--
+define :: C.Definition -> CG ()
+define cdef = state $ \s -> ((), s {cdefs = cdef : cdefs s})
+
+
 -- Generating C code from Accelerate computations
 -- ----------------------------------------------
+
+-- Name each array computation with the name of the C function that implements it.
+--
+data OpenAccWithName aenv t = OpenAccWithName Name (PreOpenAcc OpenAccWithName aenv t)
 
 -- Compile an open Accelerate computation into a function definition.
 --
 -- The computation may contain free array variables according to the array variable environment passed as a first argument.
 --
+
+---------------------------------------------------------------------------------------------------------------------------
+accToC :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> ([C.Definition], OpenAccWithName aenv arrs)
+accToC aenv acc
+  = let (acc', state) = runState (accCG aenv acc) initialCGstate
+    in
+    (cdefs state, acc')
+
+-- Compile an open Accelerate computation in the 'CG' monad.
+--
+accCG :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> CG (OpenAccWithName aenv arrs)
+accCG = error "YOU NEED TO IMPLEMENT THIS"
+
+type OpenExpWithName = PreOpenExp OpenAccWithName
+
+-- Ensure that embedded array computations are of the named variety.
+--
+adaptExp :: OpenExp env aenv t -> OpenExpWithName env aenv t
+adaptExp e
+  = case e of
+      Var ix                    -> Var ix
+      Let bnd body              -> Let (adaptExp bnd) (adaptExp body)
+      Const c                   -> Const c
+      PrimConst c               -> PrimConst c
+      PrimApp f x               -> PrimApp f (adaptExp x)
+      Tuple t                   -> Tuple (adaptTuple t)
+      Prj ix e                  -> Prj ix (adaptExp e)
+      Cond p t e                -> Cond (adaptExp p) (adaptExp t) (adaptExp e)
+      Iterate n f x             -> Iterate (adaptExp n) (adaptExp f) (adaptExp x)
+      IndexAny                  -> IndexAny
+      IndexNil                  -> IndexNil
+      IndexCons sh sz           -> IndexCons (adaptExp sh) (adaptExp sz)
+      IndexHead sh              -> IndexHead (adaptExp sh)
+      IndexTail sh              -> IndexTail (adaptExp sh)
+      IndexSlice ix slix sh     -> IndexSlice ix (adaptExp slix) (adaptExp sh)
+      IndexFull ix slix sl      -> IndexFull ix (adaptExp slix) (adaptExp sl)
+      ToIndex sh ix             -> ToIndex (adaptExp sh) (adaptExp ix)
+      FromIndex sh ix           -> FromIndex (adaptExp sh) (adaptExp ix)
+      Intersect sh1 sh2         -> Intersect (adaptExp sh1) (adaptExp sh2)
+      ShapeSize sh              -> ShapeSize (adaptExp sh)
+      Shape acc                 -> Shape (adaptAcc acc)
+      Index acc ix              -> Index (adaptAcc acc) (adaptExp ix)
+      LinearIndex acc ix        -> LinearIndex (adaptAcc acc) (adaptExp ix)
+      Foreign fo f x            -> Foreign fo (adaptFun f) (adaptExp x)
+  where
+    adaptTuple :: Tuple (OpenExp env aenv) t -> Tuple (OpenExpWithName env aenv) t
+    adaptTuple NilTup          = NilTup
+    adaptTuple (t `SnocTup` e) = adaptTuple t `SnocTup` adaptExp e
+    
+    -- No need to traverse embedded arrays as they must have been lifted out as part of sharing recovery.
+    adaptAcc (OpenAcc (Avar ix)) = OpenAccWithName noName (Avar ix)
+    adaptAcc _                   = error "D.A.A.C: unlifted array computation"
+
+type OpenFunWithName = PreOpenFun OpenAccWithName
+
+adaptFun :: OpenFun env aenv t -> OpenFunWithName env aenv t
+adaptFun (Body e) = Body $ adaptExp e
+adaptFun (Lam  f) = Lam  $ adaptFun f
+
+
+---------------------------------------------------------------------------------------------------------------------------
 accToC :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> C.Definition
 
 accToC aenv' (OpenAcc (Alet bnd body))
@@ -195,108 +291,6 @@ accToC aenv' acc@(OpenAcc (Generate _sh f))
 
 accToC _ _ = error "D.A.A.C.Acc: unimplemented"
 
---------------------------------------------------------------------------------------------------------------
---generate :: (Shape ix, Elt a) => Exp ix -> (Exp ix -> Exp a) -> Acc (Array ix a)
-
---Generate    :: (Shape sh, Elt e)
---            => PreExp     acc aenv sh                         -- output shape
---            -> PreFun     acc aenv (sh -> e)                  -- representation function
---            -> PreOpenAcc acc aenv (Array sh e)
-
-
---mkGenerate :: forall aenv sh e. (Shape sh, Elt e)
---    => DeviceProperties -> Env aenv -> fun1ToC aenv (sh -> e) -> [CUTranslSkel aenv (Array sh e)]
---mkGenerate dev aenv (CUFun1 _ f)
---  = return
---  $ CUTranslSkel "generate" [cunit|
-
---    --$esc:("#include <accelerate_cuda.h>")
---    $edecl:(cdim "DimOut" dim)
---    $edecls:texIn
-
---    --extern "C" __global__ void
---    generate
---    (
---        $params:argIn,
---        $params:argOut
---    )
---    {
---        const int shapeSize     = size(shOut);
---        const int gridSize      = $exp:(gridSize dev);
---              int ix;
-
---        for ( ix =  $exp:(threadIdx dev)
---            ; ix <  shapeSize
---            ; ix += gridSize )
---        {
---            const typename DimOut sh = fromIndex(shOut, ix);
-
---            $items:(setOut "ix" .=. f sh)
---        }
---    }
---  |]
---  where
---    dim                 = expDim (undefined :: Exp aenv sh)
---    sh                  = cshape dim (cvar "sh")
---    (texIn, argIn)      = environment dev aenv
---    (argOut, setOut)    = setters "Out" (undefined :: Array sh e)
-
---expDim :: forall acc env aenv sh. Elt sh => PreOpenExp acc env aenv sh -> Int
---expDim _ = ndim (eltType (undefined :: sh))
-
---ndim :: TupleType a -> Int
---ndim UnitTuple       = 0
---ndim (SingleTuple _) = 1
---ndim (PairTuple a b) = ndim a + ndim b
-
---setters :: forall sh e. (Shape sh, Elt e)
---    => Name                             -- group names
---    -> Array sh e                       -- dummy to fix types
---    -> ([C.Param], Name -> [C.Exp])
---setters grp _
---  = let (sh, arrs)      = namesOfArray grp (undefined :: e)
---        dim             = expDim (undefined :: Exp aenv sh)
---        sh'             = [cparam| const typename $id:("DIM" ++ show dim) $id:sh |]
---        arrs'           = zipWith (\t n -> [cparam| $ty:t * __restrict__ $id:n |]) (eltType (undefined :: e)) arrs
---    in
---    ( sh' : arrs'
---    , \ix -> map (\a -> [cexp| $id:a [ $id:ix ] |]) arrs
---    )
-
---environment :: forall aenv. DeviceProperties
---    -> Gamma aenv -> ([C.Definition], [C.Param])
---environment dev gamma@(Gamma aenv)
---  | computeCapability dev < Compute 2 0
---  = Map.foldrWithKey (\(Idx_ v) _ (ds,ps) -> let (d,p) = asTex v in (d++ds, p:ps)) ([],[]) aenv
-
---  | otherwise
---  = ([], Map.foldrWithKey (\(Idx_ v) _ vs -> asArg v ++ vs) [] aenv)
-
---  where
---    asTex :: forall sh e. (Shape sh, Elt e) => Idx aenv (Array sh e) -> ([C.Definition], C.Param)
---    asTex ix = arrayAsTex (undefined :: Array sh e) (groupOfAvar gamma ix)
-
---    asArg :: forall sh e. (Shape sh, Elt e) => Idx aenv (Array sh e) -> [C.Param]
---    asArg ix = arrayAsArg (undefined :: Array sh e) (groupOfAvar gamma ix)
-
---arrayAsTex :: forall sh e. (Shape sh, Elt e) => Array sh e -> Name -> ([C.Definition], C.Param)
---arrayAsTex _ grp =
---  let (sh, arrs)        = namesOfArray grp (undefined :: e)
---      dim               = expDim (undefined :: Exp aenv sh)
---      sh'               = [cparam| const typename $id:("DIM" ++ show dim) $id:sh |]
---      arrs'             = zipWith (\t a -> [cedecl| static $ty:t $id:a; |]) (eltTypeTex (undefined :: e)) arrs
---  in
---  (arrs', sh')
-
---arrayAsArg :: forall sh e. (Shape sh, Elt e) => Array sh e -> Name -> [C.Param]
---arrayAsArg _ grp =
---  let (sh, arrs)        = namesOfArray grp (undefined :: e)
---      dim               = expDim (undefined :: Exp aenv sh)
---      sh'               = [cparam| const typename $id:("DIM" ++ show dim) $id:sh |]
---      arrs'             = zipWith (\t n -> [cparam| const $ty:t * __restrict__ $id:n |]) (eltType (undefined :: e)) arrs
---  in
---  sh' : arrs'
--------------------------------------------------------------------------------------------------------------------------
 
 
 -- Environments
