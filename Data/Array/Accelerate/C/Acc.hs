@@ -88,18 +88,24 @@ accToC aenv acc
 -- Compile an open Accelerate computation in the 'CG' monad.
 --
 accCG :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> CG (OpenAccWithName aenv arrs)
---accToC :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> C.Definition
 
-accCG aenv' (OpenAcc (Alet bnd body))
-  = accCG aenv_bnd body
+accCG cFunName aenv arrs
+  = define acc
+  where acc = accToCDef (OpenAccWithName aenv arrs)
+
+--accCG = error "YOU NEED TO IMPLEMENT THIS"
+
+accToCDef :: forall arrs aenv. Arrays arrs => Env aenv -> OpenAcc aenv arrs -> C.Definition
+
+accToCDef aenv' (OpenAcc (Alet bnd body))
+  = accToCDef aenv_bnd body
   where
     (_, aenv_bnd) = aenv' `pushAccEnv` bnd
-    define aenv_bnd
 
-accCG _aenv' (OpenAcc (Use _))
-  = define [cedecl| int dummy_declaration; |]
+accToCDef _aenv' (OpenAcc (Use _))
+  = [cedecl| int dummy_declaration; |]
 
-accCG aenv' acc@(OpenAcc (Map f arr))
+accToCDef aenv' acc@(OpenAcc (Map f arr))
   = [cedecl|
       void $id:cFunName ( $params:(cresParams ++ cenvParams ++ cargParams) )
       {
@@ -131,7 +137,7 @@ accCG aenv' acc@(OpenAcc (Map f arr))
                                                              bnds es
                  ]
 
-accCG aenv' acc@(OpenAcc (ZipWith f arr1 arr2))
+accToCDef aenv' acc@(OpenAcc (ZipWith f arr1 arr2))
   = [cedecl|
       void $id:cFunName ( $params:(cresParams ++ cenvParams ++ cargParams1 ++ cargParams2) )
       {
@@ -179,7 +185,7 @@ accCG aenv' acc@(OpenAcc (ZipWith f arr1 arr2))
                       <- zip4 (tail cresNames) (tail cargNames2) bnds es
                  ]
 
-accCG aenv' acc@(OpenAcc (Generate _sh f))
+accToCDef aenv' acc@(OpenAcc (Generate _sh f))
   = [cedecl|
       void $id:cFunName ( $params:(cresParams ++ cenvParams) )
       {
@@ -207,8 +213,6 @@ accCG aenv' acc@(OpenAcc (Generate _sh f))
                  [ [citem| $id:resArr [i] = $exp:e; |] 
                  | (resArr, e) <- zip (tail cresNames) es             -- head is the shape variable
                  ]
-
-accCG = error "YOU NEED TO IMPLEMENT THIS"
 
 type OpenExpWithName = PreOpenExp OpenAccWithName
 
@@ -258,8 +262,6 @@ adaptFun (Lam  f) = Lam  $ adaptFun f
 
 
 ---------------------------------------------------------------------------------------------------------------------------
-
-
 --accToC aenv' acc@(OpenAcc (Generate sh e))
 --  = [cedecl|
 --      void $id:cFunName ( $params:(cresParams ++ cenvParams ++ cargParams) )
